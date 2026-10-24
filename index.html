@@ -106,6 +106,13 @@ a{color:inherit}
 }
 .case-header h2{margin:0;font-size:24px;letter-spacing:-.01em}
 .case-header .tomis{font-family:var(--mono);color:var(--muted);font-size:12.5px;margin-top:2px}
+.toast{
+  position:fixed;left:50%;bottom:28px;transform:translateX(-50%) translateY(12px);
+  background:var(--ink);color:var(--surface);font-size:12.5px;padding:10px 16px;border-radius:8px;
+  box-shadow:0 8px 24px rgba(0,0,0,.25);z-index:70;opacity:0;transition:opacity .2s,transform .2s;
+  pointer-events:none;max-width:88vw;text-align:center;
+}
+.toast.show{opacity:1;transform:translateX(-50%) translateY(0)}
 .pii-alert{
   margin-bottom:14px;padding:10px 14px;border-radius:8px;border:1px solid var(--conf-lo);
   background:color-mix(in srgb, var(--conf-lo) 14%, transparent);color:var(--conf-lo);
@@ -274,6 +281,8 @@ svg.mapviz{width:100%;height:auto;display:block;background:var(--surface-2);bord
   </aside>
   <main class="main" id="main"></main>
 </div>
+
+<div class="toast" id="toast"></div>
 
 <div class="lightbox" id="lightbox" hidden>
   <div class="lb-close" id="lightbox-close">Close ×</div>
@@ -1383,6 +1392,7 @@ svg.mapviz{width:100%;height:auto;display:block;background:var(--surface-2);bord
         readFileAsUpload(file).then(function(upload){
           if(!upload){ quickUploadBtn.disabled = false; quickUploadBtn.textContent = 'Upload photo/document'; return; }
           resolveGpsDecisions([upload]).then(function(approvedGpsUpload){
+            noteGpsResult([upload]);
             quickUploadToCase(c.subject.case_id, upload, approvedGpsUpload);
           });
         });
@@ -1769,6 +1779,34 @@ svg.mapviz{width:100%;height:auto;display:block;background:var(--surface-2);bord
     });
   }
 
+  // Previously, an uploaded photo with no GPS tag produced no feedback at
+  // all -- the same silence as a photo that was never checked in the first
+  // place, which made the check impossible to tell apart from not running.
+  // This gives every image upload an explicit, visible result either way:
+  // a prompt when GPS is found (below), and this toast when it isn't.
+  var toastTimer = null;
+  function showToast(msg, ms){
+    var el = document.getElementById('toast');
+    if(!el) return;
+    el.textContent = msg;
+    el.classList.add('show');
+    if(toastTimer) clearTimeout(toastTimer);
+    toastTimer = setTimeout(function(){ el.classList.remove('show'); }, ms || 3200);
+  }
+  // Only reports "no metadata" when every image in this upload action came
+  // back without a GPS tag -- if any of them does have one, the prompt
+  // below already gives explicit feedback for it, so this stays silent
+  // rather than contradicting that with a second, different message.
+  function noteGpsResult(uploads){
+    var imgUploads = (uploads || []).filter(function(u){ return u && u.type && u.type.indexOf('image/') === 0; });
+    if(!imgUploads.length) return;
+    var noGps = imgUploads.filter(function(u){ return !u.exifGps; });
+    if(noGps.length !== imgUploads.length) return; // at least one had GPS -- the prompt already covered it
+    showToast(imgUploads.length === 1
+      ? 'No location metadata found in "' + imgUploads[0].name + '".'
+      : 'No location metadata found in ' + imgUploads.length + ' photos.');
+  }
+
   var gpsPromptResolve = null;
   function promptForGpsInclusion(upload){
     return new Promise(function(resolve){
@@ -1834,6 +1872,7 @@ svg.mapviz{width:100%;height:auto;display:block;background:var(--surface-2);bord
     Promise.all([readFileAsUpload(photoFile), readFileAsUpload(dataFile)]).then(function(uploads){
       uploads = uploads.filter(Boolean);
       resolveGpsDecisions(uploads).then(function(approvedGpsUpload){
+        noteGpsResult(uploads);
         addCase(data, uploads, approvedGpsUpload);
         closeAddCaseModal();
       });
@@ -1855,6 +1894,7 @@ svg.mapviz{width:100%;height:auto;display:block;background:var(--surface-2);bord
     Promise.all([readFileAsUpload(photoFile), readFileAsUpload(dataFile)]).then(function(uploads){
       uploads = uploads.filter(Boolean);
       resolveGpsDecisions(uploads).then(function(approvedGpsUpload){
+        noteGpsResult(uploads);
         saveCaseEdits(caseId, data, uploads, approvedGpsUpload);
         closeEditCaseModal();
       });
